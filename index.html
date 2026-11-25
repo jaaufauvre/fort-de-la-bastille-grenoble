@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>The Bastille fort in Grenoble in pictures</title>
 <style>
 :root { --bg:#f6f4ef; --fg:#222; --muted:#666; --accent:#8a3b12; }
@@ -23,6 +24,8 @@ h2 { margin:2.2rem 0 .2rem; border-bottom:2px solid var(--accent); padding-botto
 figure { margin:0; background:#fff; border-radius:6px; overflow:hidden; box-shadow:0 1px 3px #0002; display:flex; flex-direction:column; }
 figure img { width:100%; height:220px; object-fit:cover; display:block; background:#ddd; cursor:zoom-in; }
 figcaption { padding:.6rem .7rem .7rem; display:flex; flex-direction:column; gap:.3rem; font-size:.88rem; }
+.image-retry { align-self:flex-start; border:1px solid var(--accent); border-radius:4px; background:#fff; color:var(--accent); padding:.3rem .6rem; font:inherit; cursor:pointer; }
+.image-retry:disabled { color:var(--muted); border-color:#aaa; cursor:wait; }
 .meta { color:var(--muted); }
 .src { font-size:.8rem; color:var(--muted); }
 .src a { color:var(--accent); }
@@ -33,7 +36,8 @@ figcaption { padding:.6rem .7rem .7rem; display:flex; flex-direction:column; gap
 #lb .txt { max-width:70rem; padding:.8rem 1rem; text-align:center; font-size:.95rem; }
 #lb .txt a { color:#f3b48b; }
 #lb .txt span { display:block; margin-top:.2rem; }
-#lb button { position:absolute; background:none; border:0; color:#fff; font-size:2.4rem; cursor:pointer; padding:1rem; }
+#lb .image-retry { margin-top:.7rem; background:transparent; color:#fff; border-color:#eee; }
+#lb > button { position:absolute; background:none; border:0; color:#fff; font-size:2.4rem; cursor:pointer; padding:1rem; }
 #lb .prev { left:0; top:45%; } #lb .next { right:0; top:45%; } #lb .close { right:0; top:0; }
 footer { max-width:1400px; margin:auto; padding:1rem 1.5rem 3rem; color:var(--muted); font-size:.85rem; }
 </style>
@@ -53,9 +57,22 @@ footer { max-width:1400px; margin:auto; padding:1rem 1.5rem 3rem; color:var(--mu
 <div id="lb"><button class="close" aria-label="Close">&times;</button><button class="prev" aria-label="Previous">&#8249;</button><img alt=""><div class="txt"></div><button class="next" aria-label="Next">&#8250;</button></div>
 <script>
 const figs=[...document.querySelectorAll('figure')], lb=document.getElementById('lb'), li=lb.querySelector('img'), lt=lb.querySelector('.txt');
+const retryDelays=[750,1500,3000], imageStates=new WeakMap();
 let cur=0;
-function show(i){cur=(i+figs.length)%figs.length;const f=figs[cur];li.src=f.querySelector('a.zoom').href;lt.innerHTML=f.querySelector('figcaption').innerHTML;lb.classList.add('on');}
+function retryButtonContainer(img){return img===li?lt:img.closest('figure')?.querySelector('figcaption');}
+function showRetryButton(img,waiting){const container=retryButtonContainer(img);if(!container)return;let button=imageStates.get(img).button;if(!button){button=document.createElement('button');button.type='button';button.className='image-retry';button.setAttribute('aria-live','polite');button.onclick=ev=>{ev.preventDefault();ev.stopPropagation();retryNow(img);};container.append(button);imageStates.get(img).button=button;}button.textContent=waiting?'Retrying image…':'Image unavailable. Retry';button.disabled=waiting;}
+function thumbnailUrl(source){const url=new URL(source,document.baseURI);if(url.hostname==='gallica.bnf.fr')url.pathname=url.pathname.replace(new RegExp('/full/[^/]+/0/native[.](jpg|jpeg|png)$'),'/full/480,/0/native.$1');return url.href;}
+function retryUrl(source,attempt){const url=new URL(source,document.baseURI);url.searchParams.set('_image_retry',`${attempt}-${Date.now()}`);return url.href;}
+function retryNow(img){const state=imageStates.get(img);if(!state)return;clearTimeout(state.timer);state.timer=null;state.attempts++;showRetryButton(img,true);img.src=retryUrl(state.source,state.attempts);}
+function imageFailed(img){const state=imageStates.get(img);if(!state||state.timer)return;if(state.attempts<retryDelays.length){showRetryButton(img,true);const delay=retryDelays[state.attempts];state.timer=setTimeout(()=>retryNow(img),delay);}else{showRetryButton(img,false);}}
+function imageLoaded(img){const state=imageStates.get(img);if(!state)return;clearTimeout(state.timer);state.timer=null;state.attempts=0;state.button?.remove();state.button=null;}
+function prepareImage(img,source){const previous=imageStates.get(img);if(previous)clearTimeout(previous.timer);previous?.button?.remove();imageStates.set(img,{source,attempts:0,timer:null,button:null});}
+function monitorImage(img){const source=thumbnailUrl(img.src);prepareImage(img,source);img.addEventListener('load',()=>imageLoaded(img));img.addEventListener('error',()=>imageFailed(img));if(img.src!==source)img.src=source;else if(img.complete&&!img.naturalWidth)imageFailed(img);}
+function show(i){cur=(i+figs.length)%figs.length;const f=figs[cur],source=f.querySelector('a.zoom').href;lt.innerHTML=f.querySelector('figcaption').innerHTML;lt.querySelector('.image-retry')?.remove();prepareImage(li,source);li.src=source;lb.classList.add('on');}
 figs.forEach((f,i)=>f.querySelector('a.zoom').addEventListener('click',ev=>{ev.preventDefault();show(i);}));
+figs.forEach(f=>monitorImage(f.querySelector('img')));
+li.addEventListener('load',()=>imageLoaded(li));
+li.addEventListener('error',()=>imageFailed(li));
 lb.querySelector('.close').onclick=()=>lb.classList.remove('on');
 lb.querySelector('.prev').onclick=()=>show(cur-1);
 lb.querySelector('.next').onclick=()=>show(cur+1);
